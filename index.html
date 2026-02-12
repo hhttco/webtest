@@ -3,149 +3,142 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-    <title>星际远征：三位一体</title>
+    <title>星际联动-修复版</title>
     <style>
-        :root { --neon: #00f2ff; --bg: #050810; }
-        body { margin: 0; background: var(--bg); color: #fff; font-family: 'Arial', sans-serif; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
-        
-        /* 顶部布局：左蛇右机 */
-        #topZone { display: flex; height: 50vh; border-bottom: 2px solid var(--neon); }
-        .canvas-container { flex: 1; position: relative; border: 1px solid #111; }
+        body { margin: 0; background: #050810; color: #fff; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        #gameLayout { display: flex; flex-direction: column; height: 100vh; }
+        #topArea { display: flex; height: 40vh; border-bottom: 2px solid #00f2ff; }
+        .canvas-box { flex: 1; position: relative; border: 1px solid #222; }
         canvas { width: 100%; height: 100%; display: block; }
-
-        /* 底部连连看：弹药加工厂 */
-        #matchZone { 
-            flex: 1; background: #0a0e1a; display: grid; 
-            grid-template-columns: repeat(8, 1fr); gap: 4px; padding: 10px; 
-            overflow-y: auto;
-        }
-        .cell { 
-            background: #16213e; border: 1px solid #0f3460; display: flex; 
-            justify-content: center; align-items: center; font-size: 20px; 
-            aspect-ratio: 1; cursor: pointer; border-radius: 4px; 
-        }
-        .cell.selected { background: var(--neon); color: #000; box-shadow: 0 0 10px var(--neon); }
-        .cell.hidden { opacity: 0; pointer-events: none; }
-
-        .label { position: absolute; top: 5px; left: 5px; font-size: 12px; color: var(--neon); background: rgba(0,0,0,0.7); padding: 2px 6px; }
-        #startBtn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 15px 40px; font-size: 20px; background: var(--neon); border: none; border-radius: 30px; cursor: pointer; z-index: 100; font-weight: bold; }
+        #matchGrid { flex: 1; background: #0a0e1a; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px; overflow-y: auto; }
+        .block { background: #16213e; border: 2px solid #0f3460; display: flex; justify-content: center; align-items: center; font-size: 32px; aspect-ratio: 1; border-radius: 8px; -webkit-tap-highlight-color: transparent; }
+        .block.active { border-color: #00f2ff; background: #1a3a5f; box-shadow: 0 0 15px #00f2ff; }
+        .block.none { visibility: hidden; }
+        #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; text-align: center; padding: 20px; }
+        button { padding: 18px 45px; font-size: 22px; background: #00f2ff; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; margin-bottom: 20px; color: #000; }
+        .tip { font-size: 14px; color: #aaa; line-height: 1.6; }
     </style>
 </head>
 <body>
-    <button id="startBtn">开始同步实验</button>
-    <div id="topZone">
-        <div class="canvas-container">
-            <div class="label">资源收集 (WASD控制蛇)</div>
-            <canvas id="sCanvas"></canvas>
-        </div>
-        <div class="canvas-container">
-            <div class="label">自动防卫 (鼠标/触摸控制位移)</div>
-            <canvas id="pCanvas"></canvas>
+    <div id="overlay">
+        <button id="startBtn">点击：启动游戏</button>
+        <div class="tip">
+            👈 左边：点击蛇画布 左右侧转向<br>
+            👉 右边：左右滑动手指 控制飞机<br>
+            👇 下方：消除图标 补充弹药
         </div>
     </div>
-    <div id="matchZone"></div>
+    <div id="gameLayout">
+        <div id="topArea">
+            <div class="canvas-box"><canvas id="sCanvas"></canvas></div>
+            <div class="canvas-box"><canvas id="pCanvas"></canvas></div>
+        </div>
+        <div id="matchGrid"></div>
+    </div>
 
     <script>
         const sCanvas = document.getElementById('sCanvas'), pCanvas = document.getElementById('pCanvas');
         const sCtx = sCanvas.getContext('2d'), pCtx = pCanvas.getContext('2d');
-        const matchZone = document.getElementById('matchZone'), startBtn = document.getElementById('startBtn');
+        const grid = document.getElementById('matchGrid'), startBtn = document.getElementById('startBtn');
 
-        // 初始化尺寸 [MDN Canvas 适配](https://developer.mozilla.org)
-        function initSize() {
+        function resize() {
             sCanvas.width = pCanvas.width = window.innerWidth / 2;
-            sCanvas.height = pCanvas.height = window.innerHeight * 0.5;
+            sCanvas.height = pCanvas.height = window.innerHeight * 0.4;
         }
-        window.onresize = initSize; initSize();
+        window.onresize = resize; resize();
 
-        let gameActive = false, ammoPool = [];
+        let active = false, planeX = 20, ammo = 0;
         let snake = [{x:10, y:10}], food = {x:5, y:5}, sDir = {x:1, y:0};
-        let planeX = 50, bullets = [], enemies = [], firePower = 0;
-        let selected = null;
-        const icons = ['🔋', '🚀', '⚡', '💎', '🔥'];
+        let bullets = [], enemies = [], selected = null;
+        const icons = ['🔥', '⚡', '💎', '🚀', '⭐', '🍀'];
 
-        // --- 核心：蛇吃豆产生连连看方块 ---
-        function updateSnake() {
-            const head = {x: snake[0].x + sDir.x, y: snake[0].y + sDir.y};
-            if(head.x<0 || head.x>=20 || head.y<0 || head.y>=20) return; // 简化的撞墙不执行
-            snake.unshift(head);
-            if(head.x === food.x && head.y === food.y) {
-                food = {x: Math.floor(Math.random()*20), y: Math.floor(Math.random()*20)};
-                createAmmoPair(); 
-            } else { snake.pop(); }
-        }
-
-        function createAmmoPair() {
-            const icon = icons[Math.floor(Math.random()*icons.length)];
-            [1, 2].forEach(() => {
-                const cell = document.createElement('div');
-                cell.className = 'cell'; cell.innerText = icon;
-                const item = { icon, el: cell, id: Math.random() };
-                cell.onclick = () => handleMatch(item);
-                matchZone.appendChild(cell);
-                ammoPool.push(item);
-            });
-        }
-
-        // --- 核心：消除增加飞机火力 ---
-        function handleMatch(item) {
-            if(!selected) {
-                selected = item; item.el.classList.add('selected');
-            } else {
-                if(selected.id !== item.id && selected.icon === item.icon) {
-                    item.el.classList.add('hidden'); selected.el.classList.add('hidden');
-                    firePower += 50; // 增加火力点
-                }
-                selected.el.classList.remove('selected'); selected = null;
+        // --- 修复后的生成方块函数 ---
+        function addPair() {
+            const icon = icons[Math.floor(Math.random() * icons.length)];
+            // 创建两个相同的方块
+            for (let i = 0; i < 2; i++) {
+                const el = document.createElement('div');
+                el.className = 'block'; 
+                el.innerText = icon;
+                const item = { icon, el };
+                el.onclick = () => {
+                    if (!active) return;
+                    if (!selected) {
+                        selected = item; el.classList.add('active');
+                    } else {
+                        if (selected !== item && selected.icon === item.icon) {
+                            selected.el.classList.add('none'); el.classList.add('none');
+                            ammo += 25; 
+                        }
+                        if (selected.el) selected.el.classList.remove('active');
+                        selected = null;
+                    }
+                };
+                grid.appendChild(el);
             }
         }
 
-        function gameLoop() {
-            if(!gameActive) return;
-            // 1. 绘制蛇 (资源区)
-            sCtx.fillStyle = '#000'; sCtx.fillRect(0,0,sCanvas.width, sCanvas.height);
-            sCtx.fillStyle = '#2ecc71';
-            snake.forEach(p => sCtx.fillRect(p.x*sCanvas.width/20, p.y*sCanvas.height/20, sCanvas.width/20-1, sCanvas.height/20-1));
-            sCtx.fillStyle = 'red'; sCtx.fillRect(food.x*sCanvas.width/20, food.y*sCanvas.height/20, sCanvas.width/20, sCanvas.height/20);
-
-            // 2. 绘制飞机 (战斗区)
-            pCtx.fillStyle = 'rgba(0,0,0,0.2)'; pCtx.fillRect(0,0,pCanvas.width, pCanvas.height);
-            pCtx.fillStyle = '#00f2ff'; pCtx.beginPath();
-            pCtx.moveTo(planeX, pCanvas.height-20); pCtx.lineTo(planeX+20, pCanvas.height-50); pCtx.lineTo(planeX+40, pCanvas.height-20); pCtx.fill();
-
-            // 自动射击：消耗火力值
-            if(firePower > 0) {
-                bullets.push({x: planeX+18, y: pCanvas.height-50});
-                firePower--;
-            }
-
-            bullets.forEach((b, i) => {
-                b.y -= 10; pCtx.fillStyle = '#fffb00'; pCtx.fillRect(b.x, b.y, 4, 10);
-                if(b.y < 0) bullets.splice(i, 1);
-            });
-
-            if(Math.random() < 0.05) enemies.push({x: Math.random()*pCanvas.width, y: -20});
-            enemies.forEach((e, i) => {
-                e.y += 3; pCtx.fillStyle = '#666'; pCtx.beginPath(); pCtx.arc(e.x, e.y, 15, 0, Math.PI*2); pCtx.fill();
-                bullets.forEach((b, bi) => {
-                    if(Math.abs(b.x-e.x)<20 && Math.abs(b.y-e.y)<20) { enemies.splice(i, 1); bullets.splice(bi, 1); }
-                });
-            });
-
-            requestAnimationFrame(gameLoop);
-        }
-
-        // 控制器
-        window.addEventListener('keydown', e => {
-            if(e.key==='w') sDir={x:0, y:-1}; if(e.key==='s') sDir={x:0, y:1};
-            if(e.key==='a') sDir={x:-1, y:0}; if(e.key==='d') sDir={x:1, y:0};
+        // 蛇转向
+        sCanvas.addEventListener('touchstart', e => {
+            const rect = sCanvas.getBoundingClientRect();
+            const touchX = e.touches[0].clientX - rect.left;
+            const mid = sCanvas.width / 2;
+            const oldX = sDir.x, oldY = sDir.y;
+            if (touchX > mid) { sDir.x = -oldY; sDir.y = oldX; } // 顺时针
+            else { sDir.x = oldY; sDir.y = -oldX; } // 逆时针
         });
-        pCanvas.addEventListener('mousemove', e => planeX = e.clientX - pCanvas.offsetLeft - 20);
-        pCanvas.addEventListener('touchmove', e => { e.preventDefault(); planeX = e.touches[0].clientX - pCanvas.offsetLeft - 20; }, {passive:false});
+
+        // 飞机移动
+        pCanvas.addEventListener('touchmove', e => {
+            e.preventDefault();
+            const rect = pCanvas.getBoundingClientRect();
+            planeX = e.touches[0].clientX - rect.left - 20;
+        }, {passive: false});
+
+        function loop() {
+            if (!active) return;
+            // 绘制蛇区
+            sCtx.fillStyle = '#050810'; sCtx.fillRect(0,0,sCanvas.width, sCanvas.height);
+            sCtx.fillStyle = '#0f0'; snake.forEach(p => sCtx.fillRect(p.x*sCanvas.width/20, p.y*sCanvas.height/20, sCanvas.width/20-1, sCanvas.height/20-1));
+            sCtx.fillStyle = '#f00'; sCtx.fillRect(food.x*sCanvas.width/20, food.y*sCanvas.height/20, sCanvas.width/20, sCanvas.height/20);
+
+            // 绘制飞机区
+            pCtx.fillStyle = 'rgba(0,0,0,0.2)'; pCtx.fillRect(0,0,pCanvas.width, pCanvas.height);
+            pCtx.fillStyle = '#00f2ff'; pCtx.fillRect(planeX, pCanvas.height-40, 40, 15);
+            
+            if (ammo > 0) { bullets.push({x: planeX+18, y: pCanvas.height-40}); ammo--; }
+            bullets.forEach((b, i) => {
+                b.y -= 12; pCtx.fillStyle = 'yellow'; pCtx.fillRect(b.x, b.y, 4, 10);
+                if (b.y < 0) bullets.splice(i, 1);
+            });
+
+            if (Math.random() < 0.05) enemies.push({x: Math.random()*pCanvas.width, y: 0});
+            enemies.forEach((e, i) => {
+                e.y += 4; pCtx.fillStyle = '#ff4400'; pCtx.beginPath(); pCtx.arc(e.x, e.y, 8, 0, Math.PI*2); pCtx.fill();
+                bullets.forEach((b, bi) => {
+                    if (Math.abs(b.x-e.x)<15 && Math.abs(b.y-e.y)<15) { enemies.splice(i, 1); bullets.splice(bi, 1); }
+                });
+                if(e.y > pCanvas.height) enemies.splice(i, 1);
+            });
+            requestAnimationFrame(loop);
+        }
 
         startBtn.onclick = () => {
-            startBtn.style.display = 'none'; gameActive = true;
-            setInterval(updateSnake, 150); // 蛇速固定
-            gameLoop();
+            document.getElementById('overlay').style.display = 'none';
+            active = true;
+            resize(); // 确保开始时尺寸正确
+            for(let i=0; i<4; i++) addPair();
+            setInterval(() => {
+                if (!active) return;
+                const head = {x: snake[0].x + sDir.x, y: snake[0].y + sDir.y};
+                if(head.x<0 || head.x>=20 || head.y<0 || head.y>=20) return;
+                snake.unshift(head);
+                if(head.x === food.x && head.y === food.y) {
+                    food = {x: Math.floor(Math.random()*20), y: Math.floor(Math.random()*20)};
+                    addPair();
+                } else { snake.pop(); }
+            }, 200);
+            loop();
         };
     </script>
 </body>
