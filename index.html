@@ -3,35 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-    <title>星际联动：扇形火力版</title>
+    <title>星际联动：20种水果大爆发</title>
     <style>
-        body { margin: 0; background: #050810; color: #fff; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        :root { --neon: #00f2ff; --bg: #050810; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        
+        /* 能量条：生存核心 */
+        #energyContainer { position: absolute; top: 40vh; left: 0; width: 100%; height: 8px; background: #222; z-index: 10; border-top: 1px solid var(--neon); }
+        #energyBar { height: 100%; width: 100%; background: linear-gradient(90deg, #ff0055, #00f2ff); transition: width 0.1s linear; }
+        
         #gameLayout { display: flex; flex-direction: column; height: 100vh; }
-        #topArea { display: flex; height: 40vh; border-bottom: 2px solid #00f2ff; }
-        .canvas-box { flex: 1; position: relative; border: 1px solid #222; }
+        #topArea { display: flex; height: 40vh; }
+        .canvas-box { flex: 1; position: relative; border: 1px solid #111; }
         canvas { width: 100%; height: 100%; display: block; }
         
-        /* 积分显示优化 */
-        .score-box { position: absolute; top: 5px; right: 5px; background: rgba(0,242,255,0.2); padding: 2px 8px; border-radius: 10px; font-size: 14px; color: #00f2ff; font-weight: bold; border: 1px solid #00f2ff; }
-        
-        #matchGrid { flex: 1; background: #0a0e1a; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px; overflow-y: auto; }
-        .block { background: #16213e; border: 2px solid #0f3460; display: flex; justify-content: center; align-items: center; font-size: 32px; aspect-ratio: 1; border-radius: 8px; -webkit-tap-highlight-color: transparent; }
-        .block.active { border-color: #00f2ff; background: #1a3a5f; box-shadow: 0 0 15px #00f2ff; }
-        .block.none { visibility: hidden; }
-        #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; text-align: center; padding: 20px; }
-        button { padding: 18px 45px; font-size: 22px; background: #00f2ff; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; color: #000; box-shadow: 0 0 20px #00f2ff; }
+        /* 消消乐区：5列布局以容纳更多水果 */
+        #matchGrid { flex: 1; background: #0a0e1a; display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; padding: 10px; overflow-y: auto; }
+        .block { 
+            background: #16213e; border: 1px solid #0f3460; display: flex; 
+            justify-content: center; align-items: center; font-size: 26px; 
+            aspect-ratio: 1; border-radius: 8px; transition: transform 0.1s; 
+        }
+        .block:active { transform: scale(0.9); }
+        .block.active { border-color: var(--neon); background: #1a3a5f; box-shadow: 0 0 10px var(--neon); }
+        .block.none { visibility: hidden; opacity: 0; pointer-events: none; }
+
+        #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; text-align: center; }
+        button { padding: 18px 50px; font-size: 22px; background: var(--neon); border: none; border-radius: 50px; cursor: pointer; font-weight: bold; box-shadow: 0 0 20px var(--neon); }
+        .score-display { position: absolute; top: 10px; right: 10px; color: var(--neon); font-family: monospace; font-size: 18px; font-weight: bold; }
     </style>
 </head>
 <body>
     <div id="overlay">
-        <button id="startBtn">启动扇形武器系统</button>
-        <div style="margin-top:20px; color:#aaa; font-size:14px;">消除下方方块：发射【扇形强化弹】</div>
+        <h1 style="color:var(--neon); letter-spacing:4px;">FRUIT CORE</h1>
+        <button id="startBtn">启动水果引擎</button>
+        <p style="color:#aaa; margin-top:20px; font-size:13px;">
+            🍎 蛇吃豆 -> 生产水果对<br>
+            🍇 消水果 -> 回复能量+扇形弹<br>
+            ⚠️ 能量耗尽或撞机 -> 游戏结束
+        </p>
     </div>
+
+    <div id="energyContainer"><div id="energyBar"></div></div>
+
     <div id="gameLayout">
         <div id="topArea">
             <div class="canvas-box"><canvas id="sCanvas"></canvas></div>
             <div class="canvas-box">
-                <div class="score-box">SCORE: <span id="pScore">0</span></div>
+                <div class="score-display">SCORE: <span id="scoreVal">0</span></div>
                 <canvas id="pCanvas"></canvas>
             </div>
         </div>
@@ -42,7 +61,7 @@
         const sCanvas = document.getElementById('sCanvas'), pCanvas = document.getElementById('pCanvas');
         const sCtx = sCanvas.getContext('2d'), pCtx = pCanvas.getContext('2d');
         const grid = document.getElementById('matchGrid'), startBtn = document.getElementById('startBtn');
-        const pScoreEl = document.getElementById('pScore');
+        const energyBar = document.getElementById('energyBar'), scoreEl = document.getElementById('scoreVal');
 
         function resize() {
             sCanvas.width = pCanvas.width = window.innerWidth / 2;
@@ -50,25 +69,32 @@
         }
         window.onresize = resize; resize();
 
-        let active = false, planeX = 20, ammo = 0, score = 0;
+        let active = false, score = 0, energy = 100;
         let snake = [{x:10, y:10}], food = {x:5, y:5}, sDir = {x:1, y:0};
-        let bullets = [], enemies = [], selected = null;
-        const icons = ['🔥', '⚡', '💎', '🚀', '⭐', '🍀'];
+        let planeX = 20, bullets = [], enemies = [], selected = null;
 
-        function addPair() {
-            const icon = icons[Math.floor(Math.random() * icons.length)];
+        // 🍇 20种不同类型的水果列表 [Unicode Emoji](https://unicode.org)
+        const fruits = [
+            '🍎','🍌','🍇','🍉','🍓','🍒','🍍','🥭','🥝','🍐',
+            '🍑','🍊','🍋','🍈','🍏','🫐','🥥','🍅','🥑','🌽'
+        ];
+
+        // 核心：增加水果对
+        function addFruitPair() {
+            const fruit = fruits[Math.floor(Math.random() * fruits.length)];
             for (let i = 0; i < 2; i++) {
                 const el = document.createElement('div');
-                el.className = 'block'; el.innerText = icon;
-                const item = { icon, el };
+                el.className = 'block'; el.innerText = fruit;
+                const item = { fruit, el };
                 el.onclick = () => {
                     if (!active) return;
                     if (!selected) {
                         selected = item; el.classList.add('active');
                     } else {
-                        if (selected !== item && selected.icon === item.icon) {
+                        if (selected !== item && selected.fruit === item.fruit) {
                             selected.el.classList.add('none'); el.classList.add('none');
-                            ammo += 15; // 每次消除增加15波扇形子弹
+                            energy = Math.min(100, energy + 12); // 回能
+                            score += 50; scoreEl.innerText = score;
                         }
                         if (selected.el) selected.el.classList.remove('active');
                         selected = null;
@@ -76,83 +102,95 @@
                 };
                 grid.appendChild(el);
             }
+            // 自动滚动到底部以便看到新水果
+            grid.scrollTop = grid.scrollHeight;
         }
 
+        // 触控逻辑
         sCanvas.addEventListener('touchstart', e => {
             const rect = sCanvas.getBoundingClientRect();
-            const touchX = e.touches[0].clientX - rect.left;
-            const mid = sCanvas.width / 2;
-            const oldX = sDir.x, oldY = sDir.y;
-            if (touchX > mid) { sDir.x = -oldY; sDir.y = oldX; } else { sDir.x = oldY; sDir.y = -oldX; }
+            const tx = e.touches[0].clientX - rect.left;
+            const ox = sDir.x, oy = sDir.y;
+            if (tx > sCanvas.width/2) { sDir.x = -oy; sDir.y = ox; } else { sDir.x = oy; sDir.y = -ox; }
         });
-
         pCanvas.addEventListener('touchmove', e => {
             e.preventDefault();
-            const rect = pCanvas.getBoundingClientRect();
-            planeX = e.touches[0].clientX - rect.left - 20;
+            planeX = e.touches[0].clientX - pCanvas.getBoundingClientRect().left - 20;
         }, {passive: false});
 
         function loop() {
             if (!active) return;
-            // 蛇区绘制
-            sCtx.fillStyle = '#050810'; sCtx.fillRect(0,0,sCanvas.width, sCanvas.height);
-            sCtx.fillStyle = '#0f0'; snake.forEach(p => sCtx.fillRect(p.x*sCanvas.width/20, p.y*sCanvas.height/20, sCanvas.width/20-1, sCanvas.height/20-1));
-            sCtx.fillStyle = '#f00'; sCtx.fillRect(food.x*sCanvas.width/20, food.y*sCanvas.height/20, sCanvas.width/20, sCanvas.height/20);
 
-            // 飞机区绘制
+            // 1. 能量衰减 (随时间变快)
+            energy -= (0.12 + score/10000); 
+            energyBar.style.width = energy + "%";
+            if (energy <= 0) return gameOver("核心果汁耗尽！");
+
+            // 2. 蛇区渲染
+            sCtx.fillStyle = '#050810'; sCtx.fillRect(0,0,sCanvas.width, sCanvas.height);
+            sCtx.fillStyle = '#2ecc71'; snake.forEach(p => sCtx.fillRect(p.x*sCanvas.width/20, p.y*sCanvas.height/20, sCanvas.width/20-1, sCanvas.height/20-1));
+            sCtx.fillStyle = '#ff0055'; sCtx.beginPath(); sCtx.arc((food.x+0.5)*sCanvas.width/20, (food.y+0.5)*sCanvas.height/20, sCanvas.width/40, 0, Math.PI*2); sCtx.fill();
+
+            // 3. 战机区渲染
             pCtx.fillStyle = 'rgba(0,5,15,0.3)'; pCtx.fillRect(0,0,pCanvas.width, pCanvas.height);
-            pCtx.fillStyle = '#00f2ff'; pCtx.fillRect(planeX, pCanvas.height-40, 40, 15);
+            pCtx.fillStyle = '#00f2ff'; pCtx.fillRect(planeX, pCanvas.height-40, 40, 12);
             
-            // --- 核心修改：扇形子弹生成 ---
-            if (ammo > 0) { 
-                // 每次发射3枚，形成扇形角度
-                bullets.push({x: planeX+18, y: pCanvas.height-40, vx: -2}); // 向左斜
-                bullets.push({x: planeX+18, y: pCanvas.height-40, vx: 0});  // 直行
-                bullets.push({x: planeX+18, y: pCanvas.height-40, vx: 2});  // 向右斜
-                ammo--; 
+            // 只要有能量就自动扇形射击
+            if (energy > 5) {
+                bullets.push({x: planeX+18, y: pCanvas.height-40, vx: -1.5}, {x: planeX+18, y: pCanvas.height-40, vx: 0}, {x: planeX+18, y: pCanvas.height-40, vx: 1.5});
             }
 
             bullets.forEach((b, i) => {
-                b.y -= 8; b.x += b.vx; // 处理横向偏移
-                pCtx.fillStyle = '#fffb00'; 
-                pCtx.shadowBlur = 10; pCtx.shadowColor = '#fffb00';
-                pCtx.fillRect(b.x, b.y, 4, 10);
-                pCtx.shadowBlur = 0;
-                if (b.y < 0 || b.x < 0 || b.x > pCanvas.width) bullets.splice(i, 1);
+                b.y -= 10; b.x += b.vx;
+                pCtx.fillStyle = '#fffb00'; pCtx.fillRect(b.x, b.y, 3, 12);
+                if (b.y < 0) bullets.splice(i, 1);
             });
 
-            // 敌人与积分逻辑
-            if (Math.random() < 0.06) enemies.push({x: Math.random()*pCanvas.width, y: 0, s: 15+Math.random()*15});
+            // 敌人与碰撞
+            if (Math.random() < 0.05 + score/20000) enemies.push({x: Math.random()*pCanvas.width, y: -20, r: 10 + Math.random()*10});
             enemies.forEach((e, i) => {
-                e.y += 3.5; pCtx.fillStyle = '#ff4400'; pCtx.beginPath(); pCtx.arc(e.x, e.y, e.s/2, 0, Math.PI*2); pCtx.fill();
+                e.y += 3; pCtx.fillStyle = '#ff4400'; pCtx.beginPath(); pCtx.arc(e.x, e.y, e.r, 0, Math.PI*2); pCtx.fill();
                 
+                // 子弹击中
                 bullets.forEach((b, bi) => {
-                    const dist = Math.sqrt((b.x-e.x)**2 + (b.y-e.y)**2);
-                    if (dist < e.s) { 
-                        enemies.splice(i, 1); bullets.splice(bi, 1); 
-                        score += 10; // 击败敌人加10分
-                        pScoreEl.innerText = score;
+                    if (Math.abs(b.x - e.x) < e.r && Math.abs(b.y - e.y) < e.r) {
+                        enemies.splice(i, 1); bullets.splice(bi, 1);
+                        score += 10; scoreEl.innerText = score;
                     }
                 });
-                if(e.y > pCanvas.height) enemies.splice(i, 1);
+                // 撞击飞机
+                if (Math.abs(planeX + 20 - e.x) < 25 && Math.abs(pCanvas.height - 30 - e.y) < 25) {
+                    enemies.splice(i, 1); energy -= 20; // 撞击重罚能量
+                    if(energy < 0) energy = 0;
+                }
+                if (e.y > pCanvas.height) enemies.splice(i, 1);
             });
+
             requestAnimationFrame(loop);
+        }
+
+        function gameOver(msg) {
+            active = false; alert(msg + "\n最终积分: " + score); location.reload();
         }
 
         startBtn.onclick = () => {
             document.getElementById('overlay').style.display = 'none';
             active = true; resize();
-            for(let i=0; i<4; i++) addPair();
+            for(let i=0; i<5; i++) addFruitPair(); // 初始提供10个水果
+            
+            // 蛇的计时器
             setInterval(() => {
                 if (!active) return;
                 const head = {x: snake[0].x + sDir.x, y: snake[0].y + sDir.y};
-                if(head.x<0 || head.x>=20 || head.y<0 || head.y>=20) return;
+                // 蛇撞墙处理：自动反弹
+                if(head.x<0 || head.x>=20 || head.y<0 || head.y>=20) { sDir={x:-sDir.x, y:-sDir.y}; return; }
                 snake.unshift(head);
                 if(head.x === food.x && head.y === food.y) {
                     food = {x: Math.floor(Math.random()*20), y: Math.floor(Math.random()*20)};
-                    addPair();
+                    addFruitPair(); // 联动：蛇吃豆产生水果对
                 } else { snake.pop(); }
-            }, 200);
+            }, 180);
+
             loop();
         };
     </script>
