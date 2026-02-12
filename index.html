@@ -16,6 +16,24 @@
         #topArea { display: flex; height: 40vh; }
         .canvas-box { flex: 1; position: relative; border: 1px solid #111; }
         canvas { width: 100%; height: 100%; display: block; }
+
+        .snake-controls {
+            position: absolute; bottom: 10px; left: 10px;
+            display: grid; grid-template-columns: repeat(3, 45px); grid-template-rows: repeat(2, 45px);
+            gap: 5px; z-index: 50;
+        }
+        .dir-btn {
+            width: 45px; height: 45px; background: rgba(0, 242, 255, 0.15);
+            border: 2px solid var(--neon); border-radius: 10px;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold; color: var(--neon); font-size: 24px;
+            user-select: none; -webkit-tap-highlight-color: transparent;
+        }
+        .dir-btn:active { background: var(--neon); color: #000; transform: scale(0.9); }
+        .btn-up { grid-column: 2; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
         
         /* 消消乐区：5列布局以容纳更多水果 */
         #matchGrid { flex: 1; background: #0a0e1a; display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; padding: 10px; overflow-y: auto; }
@@ -48,7 +66,15 @@
 
     <div id="gameLayout">
         <div id="topArea">
-            <div class="canvas-box"><canvas id="sCanvas"></canvas></div>
+            <div class="canvas-box">
+                <div class="snake-controls">
+                    <div class="dir-btn btn-up" id="ctrl-up">▲</div>
+                    <div class="dir-btn btn-left" id="ctrl-left">◀</div>
+                    <div class="dir-btn btn-down" id="ctrl-down">▼</div>
+                    <div class="dir-btn btn-right" id="ctrl-right">▶</div>
+                </div>
+                <canvas id="sCanvas"></canvas>
+            </div>
             <div class="canvas-box">
                 <div class="score-display">SCORE: <span id="scoreVal">0</span></div>
                 <canvas id="pCanvas"></canvas>
@@ -93,7 +119,7 @@
                     } else {
                         if (selected !== item && selected.fruit === item.fruit) {
                             selected.el.classList.add('none'); el.classList.add('none');
-                            energy = Math.min(100, energy + 12); // 回能
+                            energy = Math.min(100, energy + 18); // 回能
                             score += 50; scoreEl.innerText = score;
                         }
                         if (selected.el) selected.el.classList.remove('active');
@@ -105,6 +131,26 @@
             // 自动滚动到底部以便看到新水果
             grid.scrollTop = grid.scrollHeight;
         }
+
+        const changeDir = (newX, newY) => {
+            // 防止掉头 (不允许直接向相反方向移动)
+            if (newX !== 0 && sDir.x === -newX) return;
+            if (newY !== 0 && sDir.y === -newY) return;
+            sDir = { x: newX, y: newY };
+        };
+
+        // 绑定四个按钮的点击/触摸事件
+        const bindBtn = (id, x, y) => {
+            const el = document.getElementById(id);
+            // 响应手机触摸和电脑点击
+            el.addEventListener('touchstart', (e) => { e.preventDefault(); changeDir(x, y); });
+            el.addEventListener('mousedown', (e) => { changeDir(x, y); });
+        };
+
+        bindBtn('ctrl-up', 0, -1);
+        bindBtn('ctrl-down', 0, 1);
+        bindBtn('ctrl-left', -1, 0);
+        bindBtn('ctrl-right', 1, 0);
 
         // 触控逻辑
         sCanvas.addEventListener('touchstart', e => {
@@ -122,7 +168,7 @@
             if (!active) return;
 
             // 1. 能量衰减 (随时间变快)
-            energy -= (0.12 + score/10000); 
+            energy -= (0.05 + score/20000); 
             energyBar.style.width = energy + "%";
             if (energy <= 0) return gameOver("核心果汁耗尽！");
 
